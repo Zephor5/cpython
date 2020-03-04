@@ -98,6 +98,10 @@ PyAPI_FUNC(void *) PyObject_Malloc(size_t);
 PyAPI_FUNC(void *) PyObject_Realloc(void *, size_t);
 PyAPI_FUNC(void) PyObject_Free(void *);
 
+/* arenas info */
+PyAPI_FUNC(size_t) PyObject_GetArenaN(void);
+PyAPI_FUNC(double_t) PyObject_GetArenaUsage(void);
+
 
 /* Macros */
 #ifdef WITH_PYMALLOC

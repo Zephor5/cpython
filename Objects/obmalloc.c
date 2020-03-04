@@ -554,6 +554,117 @@ static size_t ntimes_arena_allocated = 0;
 static size_t narenas_highwater = 0;
 #endif
 
+/* arenas info functions */
+size_t PyObject_GetArenaN(void)
+{
+    return narenas_currently_allocated;
+}
+
+double_t PyObject_GetArenaUsage(void)
+{
+    uint i;
+    const uint numclasses = SMALL_REQUEST_THRESHOLD >> ALIGNMENT_SHIFT;
+    /* # of pools, allocated blocks, and free blocks per class index */
+    size_t numpools[SMALL_REQUEST_THRESHOLD >> ALIGNMENT_SHIFT];
+    size_t numblocks[SMALL_REQUEST_THRESHOLD >> ALIGNMENT_SHIFT];
+    size_t numfreeblocks[SMALL_REQUEST_THRESHOLD >> ALIGNMENT_SHIFT];
+    /* total # of allocated bytes in used and full pools */
+    size_t allocated_bytes = 0;
+    /* total # of available bytes in used pools */
+    size_t available_bytes = 0;
+    /* # of free pools + pools not yet carved out of current arena */
+    uint numfreepools = 0;
+    /* # of bytes for arena alignment padding */
+    size_t arena_alignment = 0;
+    /* # of bytes in used and full pools used for pool_headers */
+    size_t pool_header_bytes = 0;
+    /* # of bytes in used and full pools wasted due to quantization,
+     * i.e. the necessarily leftover space at the ends of used and
+     * full pools.
+     */
+    size_t quantization = 0;
+    /* # of arenas actually allocated. */
+    size_t narenas = 0;
+
+    char buf[128];
+
+    for (i = 0; i < numclasses; ++i)
+        numpools[i] = numblocks[i] = numfreeblocks[i] = 0;
+
+    /* Because full pools aren't linked to from anything, it's easiest
+     * to march over all the arenas.  If we're lucky, most of the memory
+     * will be living in full pools -- would be a shame to miss them.
+     */
+    for (i = 0; i < maxarenas; ++i)
+    {
+        uint j;
+        uptr base = arenas[i].address;
+
+        /* Skip arenas which are not allocated. */
+        if (arenas[i].address == (uptr)NULL)
+            continue;
+        narenas += 1;
+
+        numfreepools += arenas[i].nfreepools;
+
+        /* round up to pool alignment */
+        if (base & (uptr)POOL_SIZE_MASK)
+        {
+            arena_alignment += POOL_SIZE;
+            base &= ~(uptr)POOL_SIZE_MASK;
+            base += POOL_SIZE;
+        }
+
+        /* visit every pool in the arena */
+        assert(base <= (uptr)arenas[i].pool_address);
+        for (j = 0;
+             base < (uptr)arenas[i].pool_address;
+             ++j, base += POOL_SIZE)
+        {
+            poolp p = (poolp)base;
+            const uint sz = p->szidx;
+            uint freeblocks;
+
+            if (p->ref.count == 0)
+            {
+                /* currently unused */
+                assert(pool_is_in_list(p, arenas[i].freepools));
+                continue;
+            }
+            ++numpools[sz];
+            numblocks[sz] += p->ref.count;
+            freeblocks = NUMBLOCKS(sz) - p->ref.count;
+            numfreeblocks[sz] += freeblocks;
+        }
+    }
+    assert(narenas == narenas_currently_allocated);
+
+    // fputc('\n', stderr);
+    // fputs("class   size   num pools   blocks in use  avail blocks\n"
+    //       "-----   ----   ---------   -------------  ------------\n",
+    //       stderr);
+
+    for (i = 0; i < numclasses; ++i)
+    {
+        size_t p = numpools[i];
+        size_t b = numblocks[i];
+        size_t f = numfreeblocks[i];
+        uint size = INDEX2SIZE(i);
+        if (p == 0)
+        {
+            assert(b == 0 && f == 0);
+            continue;
+        }
+        allocated_bytes += b * size;
+        available_bytes += f * size;
+        pool_header_bytes += p * POOL_OVERHEAD;
+        quantization += p * ((POOL_SIZE - POOL_OVERHEAD) % size);
+    }
+    return allocated_bytes / (
+        (narenas_currently_allocated * ARENA_SIZE -
+         pool_header_bytes - quantization - arena_alignment) * 1.0);
+}
+
 /* Allocate a new arena.  If we run out of memory, return NULL.  Else
  * allocate a new arena, and return the address of an arena_object
  * describing the new arena.  It's expected that the caller will set
