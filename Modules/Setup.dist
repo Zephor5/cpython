@@ -489,3 +489,6 @@ GLHACK=-Dclear=__GLclear
 
 # Another example -- the 'xxsubtype' module shows C-level subtyping in action
 xxsubtype xxsubtype.c
+
+# custom module to show arenas info
+memstats memstats.c
