@@ -1444,6 +1444,193 @@ PyGC_Collect(void)
     return n;
 }
 
+static PyObject *
+type_module(PyTypeObject *type)
+{
+    PyObject *mod;
+    char *s;
+
+    if (type->tp_flags & Py_TPFLAGS_HEAPTYPE) {
+        mod = PyDict_GetItemString(type->tp_dict, "__module__");
+        if (!mod) {
+            PyErr_Format(PyExc_AttributeError, "__module__");
+            return 0;
+        }
+        Py_XINCREF(mod);
+        return mod;
+    }
+    else {
+        s = strrchr(type->tp_name, '.');
+        if (s != NULL)
+            return PyString_FromStringAndSize(
+                type->tp_name, (Py_ssize_t)(s - type->tp_name));
+        return PyString_FromString("__builtin__");
+    }
+}
+
+static PyObject * sys_modules_set = NULL;
+static const char *internal_modules[] = {
+    "__builtin__",
+    "_weakrefset",
+    "_ast",
+    "abc",
+    "site",
+    "codecs",
+    "exceptions",
+    "functools",
+    "operator",
+    "socket",
+    "ssl",
+    "string",
+    "typing",
+    "thread",
+    "threading",
+    "ctypes",
+    "random",
+    NULL
+};
+
+static inline int
+build_sys_modules_set(void)
+{
+    char **m;
+    PyObject *name;
+    if (sys_modules_set == NULL){
+        sys_modules_set = PySet_New(NULL);
+        if (sys_modules_set == NULL) {
+            return -1;
+        }
+        for (m=internal_modules; *m != NULL; m++) {
+            name = PyString_InternFromString(*m);
+            PySet_Add(sys_modules_set, name);
+            Py_XDECREF(name);
+        }
+    }
+    return 0;
+}
+
+PyObject *
+PyGC_Get_Exclude_Modules(void)
+{
+    if (build_sys_modules_set()) {
+        return PySet_New(NULL);
+    }
+    Py_INCREF(sys_modules_set);
+    return sys_modules_set;
+}
+
+Py_ssize_t PyGC_Set_Exclude_Modules(PyObject *excludes)
+{
+    int i;
+    PyObject *item;
+    if (build_sys_modules_set())
+        return -1;
+
+    for (i = 0; i < PyTuple_GET_SIZE(excludes); i++) {
+        item = PyTuple_GET_ITEM(excludes, i);
+        if (PyString_Check(item)) {
+            PySet_Add(sys_modules_set, item);
+        }
+    }
+    return 0;
+}
+
+static int
+is_user_object(PyObject* obj)
+{
+    PyObject *m;
+    if (obj->ob_type->ob_type->tp_flags < Py_TPFLAGS_TYPE_SUBCLASS)
+        return 0;
+
+    m = type_module(obj->ob_type);
+    if (m == NULL)
+        goto fail;
+    else if (!PyString_Check(m))
+        goto fail;
+
+    build_sys_modules_set();
+
+    if (!PySet_Contains(sys_modules_set, m)) {
+        Py_DECREF(m);
+        return 1;
+    }
+fail:
+    Py_XDECREF(m);
+    return 0;
+}
+
+#undef _GC_MAX_OBJ_REPR_LEN
+#define _GC_MAX_OBJ_REPR_LEN 128
+
+static Py_ssize_t
+get_user_objects(PyGC_Head *list, PyObject *result)
+{
+    PyGC_Head *gc;
+    PyObject *obj, *v;
+    long n;
+    for (gc = list->gc.gc_prev; gc != list; gc = gc->gc.gc_prev) {
+        obj = FROM_GC(gc);
+        if (obj == result)
+            continue;
+        if (is_user_object(obj)) {
+            obj = obj->ob_type->tp_repr(obj);
+            if (obj == NULL) {
+                PyErr_SetString(PyExc_RuntimeError, "can't get repr of obj");
+                return -1;
+            }
+            if (Py_SIZE(obj) > _GC_MAX_OBJ_REPR_LEN) {
+                v = obj->ob_type->tp_as_sequence->sq_slice(obj, 0, _GC_MAX_OBJ_REPR_LEN);
+                Py_DECREF(obj);
+                obj = v;
+            }
+            v = PyDict_GetItem(result, obj);
+            if (v == NULL) {
+                n = 0L;
+            } else {
+                n = PyInt_AS_LONG(v);
+                Py_DECREF(v);
+                if (n == LONG_MAX) {
+                    PyErr_SetString(PyExc_OverflowError, "Counting objects too large");
+                    goto fail;
+                }
+            }
+            v = PyInt_FromLong(n + 1);
+            if (v == NULL) {
+                PyErr_SetString(PyExc_MemoryError, "can't construct int");
+                goto fail;
+            }
+            if (PyDict_SetItem(result, obj, v)) {
+                Py_DECREF(v);
+                PyErr_SetString(PyExc_RuntimeError, "can't set item of result");
+                goto fail;
+            }
+            Py_DECREF(obj);
+            Py_DECREF(v);
+        }
+    }
+
+    return 0;
+fail:
+    Py_DECREF(obj);
+    return -1;
+}
+
+PyObject *
+PyGC_Collect_User_Objects(void)
+{
+    int i;
+    PyObject *result = PyDict_New();
+    if (!result) return NULL;
+
+    for (i = NUM_GENERATIONS; i-- > 0;) {
+        if (get_user_objects(GEN_HEAD(i), result)) {
+            Py_DECREF(result);
+            return NULL;
+        }
+    }
+    return result;
+}
+
 /* for debugging */
 void
 _PyGC_Dump(PyGC_Head *g)

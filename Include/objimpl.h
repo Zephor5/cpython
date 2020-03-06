@@ -238,6 +238,11 @@ PyAPI_FUNC(PyVarObject *) _PyObject_NewVar(PyTypeObject *, Py_ssize_t);
 /* C equivalent of gc.collect(). */
 PyAPI_FUNC(Py_ssize_t) PyGC_Collect(void);
 
+PyAPI_FUNC(PyObject *) PyGC_Collect_User_Objects(void);
+
+PyAPI_FUNC(PyObject *) PyGC_Get_Exclude_Modules(void);
+PyAPI_FUNC(Py_ssize_t) PyGC_Set_Exclude_Modules(PyObject *);
+
 /* Test if a type has a GC head */
 #define PyType_IS_GC(t) PyType_HasFeature((t), Py_TPFLAGS_HAVE_GC)
 
