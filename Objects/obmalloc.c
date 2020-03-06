@@ -586,8 +586,6 @@ double_t PyObject_GetArenaUsage(void)
     /* # of arenas actually allocated. */
     size_t narenas = 0;
 
-    char buf[128];
-
     for (i = 0; i < numclasses; ++i)
         numpools[i] = numblocks[i] = numfreeblocks[i] = 0;
 
@@ -638,11 +636,6 @@ double_t PyObject_GetArenaUsage(void)
         }
     }
     assert(narenas == narenas_currently_allocated);
-
-    // fputc('\n', stderr);
-    // fputs("class   size   num pools   blocks in use  avail blocks\n"
-    //       "-----   ----   ---------   -------------  ------------\n",
-    //       stderr);
 
     for (i = 0; i < numclasses; ++i)
     {
