@@ -1444,6 +1444,107 @@ PyGC_Collect(void)
     return n;
 }
 
+static PyObject *
+type_name(PyTypeObject *type)
+{
+    const char *s;
+
+    if (type->tp_flags & Py_TPFLAGS_HEAPTYPE) {
+        PyHeapTypeObject* et = (PyHeapTypeObject*)type;
+
+        Py_INCREF(et->ht_name);
+        return et->ht_name;
+    }
+    else {
+        s = strrchr(type->tp_name, '.');
+        if (s == NULL)
+            s = type->tp_name;
+        else
+            s++;
+        return PyString_FromString(s);
+    }
+}
+
+static PyObject *
+type_module(PyTypeObject *type)
+{
+    PyObject *mod;
+    char *s;
+
+    if (type->tp_flags & Py_TPFLAGS_HEAPTYPE) {
+        mod = PyDict_GetItemString(type->tp_dict, "__module__");
+        if (!mod) {
+            PyErr_Format(PyExc_AttributeError, "__module__");
+            return 0;
+        }
+        Py_XINCREF(mod);
+        return mod;
+    }
+    else {
+        s = strrchr(type->tp_name, '.');
+        if (s != NULL)
+            return PyString_FromStringAndSize(
+                type->tp_name, (Py_ssize_t)(s - type->tp_name));
+        return PyString_FromString("__builtin__");
+    }
+}
+
+static int
+is_user_object(PyObject* obj)
+{
+    PyObject *m;
+    if (obj->ob_type->tp_flags < Py_TPFLAGS_TYPE_SUBCLASS)
+        return 0;
+    m = type_module(obj);
+    if (m == NULL)
+        goto fail;
+    else if (!PyString_Check(m))
+        goto fail;
+
+    if (strcmp(PyString_AS_STRING(m), "__builtin__") &&
+         *PyString_AS_STRING(m) != '_') {
+        Py_DECREF(m);
+        return 1;
+    }
+fail:
+    Py_XDECREF(m);
+    return 0;
+}
+
+static Py_ssize_t
+get_user_objects(PyGC_Head *list, PyObject *resultlist)
+{
+    PyGC_Head *gc;
+    PyObject *obj;
+    for (gc = list->gc.gc_next; gc != list; gc = gc->gc.gc_next) {
+        obj = FROM_GC(gc);
+        if (obj == resultlist)
+            continue;
+        if (is_user_object(obj)) {
+            if (PyList_Append(resultlist, obj) < 0)
+                return 0; /* error */
+        }
+    }
+
+    return 1;
+}
+
+PyObject *
+PyGC_Collect_User_Objects(void)
+{
+    int i;
+    PyObject *result = PyList_New(0);
+    if (!result) return NULL;
+
+    for (i = 0; i < NUM_GENERATIONS; i++) {
+        if (!(get_user_objects(GEN_HEAD(i), result))) {
+            Py_DECREF(result);
+            return NULL;
+        }
+    }
+    return result;
+}
+
 /* for debugging */
 void
 _PyGC_Dump(PyGC_Head *g)
