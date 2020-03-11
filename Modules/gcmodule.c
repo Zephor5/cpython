@@ -1445,27 +1445,6 @@ PyGC_Collect(void)
 }
 
 static PyObject *
-type_name(PyTypeObject *type)
-{
-    const char *s;
-
-    if (type->tp_flags & Py_TPFLAGS_HEAPTYPE) {
-        PyHeapTypeObject* et = (PyHeapTypeObject*)type;
-
-        Py_INCREF(et->ht_name);
-        return et->ht_name;
-    }
-    else {
-        s = strrchr(type->tp_name, '.');
-        if (s == NULL)
-            s = type->tp_name;
-        else
-            s++;
-        return PyString_FromString(s);
-    }
-}
-
-static PyObject *
 type_module(PyTypeObject *type)
 {
     PyObject *mod;
@@ -1489,20 +1468,51 @@ type_module(PyTypeObject *type)
     }
 }
 
+static PyObject * sys_modules_set = NULL;
+static const char *internal_modules[] = {
+    "__builtin__",
+    "_weakrefset",
+    "abc",
+    "site",
+    "codecs",
+    "exceptions"
+};
+static int internal_modules_len = sizeof(internal_modules)/sizeof(char *);
+
+static int
+build_sys_modules_set(void)
+{
+    PyObject *name;
+    if (sys_modules_set == NULL){
+        sys_modules_set = PySet_New(NULL);
+        if (sys_modules_set == NULL) {
+            return -1;
+        }
+        for (int i=0; i < internal_modules_len; i++) {
+            name = PyString_FromString(internal_modules[i]);
+            PySet_Add(sys_modules_set, name);
+            Py_XDECREF(name);
+        }
+    }
+    return 0;
+}
+
 static int
 is_user_object(PyObject* obj)
 {
     PyObject *m;
-    if (obj->ob_type->tp_flags < Py_TPFLAGS_TYPE_SUBCLASS)
+    if (obj->ob_type->ob_type->tp_flags < Py_TPFLAGS_TYPE_SUBCLASS)
         return 0;
-    m = type_module(obj);
+
+    m = type_module(obj->ob_type);
     if (m == NULL)
         goto fail;
     else if (!PyString_Check(m))
         goto fail;
 
-    if (strcmp(PyString_AS_STRING(m), "__builtin__") &&
-         *PyString_AS_STRING(m) != '_') {
+    build_sys_modules_set();
+
+    if (!PySet_Contains(sys_modules_set, m)) {
         Py_DECREF(m);
         return 1;
     }
