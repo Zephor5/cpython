@@ -20,7 +20,16 @@ memstats_get_arenas_usage(PyObject *self, PyObject *args)
 static PyObject *
 memstats_get_user_objects(PyObject *self, PyObject *args)
 {
-    return PyGC_Collect_User_Objects();
+    PyObject *res;
+#ifdef WITH_THREAD
+    PyGILState_STATE gil;
+    gil = PyGILState_Ensure();
+#endif
+    res = PyGC_Collect_User_Objects();
+#ifdef WITH_THREAD
+    PyGILState_Release(gil);
+#endif
+    return res;
 }
 
 static PyObject *

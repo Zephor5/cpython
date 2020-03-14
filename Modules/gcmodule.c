@@ -1539,10 +1539,11 @@ static int
 is_user_object(PyObject* obj)
 {
     PyObject *m;
-    if (obj->ob_type->ob_type->tp_flags < Py_TPFLAGS_TYPE_SUBCLASS)
-        return 0;
+    if (PyType_HasFeature(Py_TYPE(obj),
+        Py_TPFLAGS_LIST_SUBCLASS | Py_TPFLAGS_DICT_SUBCLASS))
+        return 1;
 
-    m = type_module(obj->ob_type);
+    m = type_module(Py_TYPE(obj));
     if (m == NULL)
         goto fail;
     else if (!PyString_Check(m))
@@ -1566,29 +1567,27 @@ static Py_ssize_t
 get_user_objects(PyGC_Head *list, PyObject *result)
 {
     PyGC_Head *gc;
-    PyObject *obj, *v;
+    PyObject *obj, *obj_repr, *v;
     long n;
     for (gc = list->gc.gc_prev; gc != list; gc = gc->gc.gc_prev) {
         obj = FROM_GC(gc);
         if (obj == result)
             continue;
         if (is_user_object(obj)) {
-            obj = obj->ob_type->tp_repr(obj);
-            if (obj == NULL) {
-                PyErr_SetString(PyExc_RuntimeError, "can't get repr of obj");
-                return -1;
+            obj_repr = PyObject_Repr(obj);
+            if (obj_repr == NULL) {
+                obj_repr = PyString_FromFormat("unknown obj<%p>", obj);
             }
-            if (Py_SIZE(obj) > _GC_MAX_OBJ_REPR_LEN) {
-                v = obj->ob_type->tp_as_sequence->sq_slice(obj, 0, _GC_MAX_OBJ_REPR_LEN);
-                Py_DECREF(obj);
-                obj = v;
+            if (Py_SIZE(obj_repr) > _GC_MAX_OBJ_REPR_LEN) {
+                v = PySequence_GetSlice(obj_repr, 0, _GC_MAX_OBJ_REPR_LEN);
+                Py_DECREF(obj_repr);
+                obj_repr = v;
             }
-            v = PyDict_GetItem(result, obj);
+            v = PyDict_GetItem(result, obj_repr);
             if (v == NULL) {
                 n = 0L;
             } else {
                 n = PyInt_AS_LONG(v);
-                Py_DECREF(v);
                 if (n == LONG_MAX) {
                     PyErr_SetString(PyExc_OverflowError, "Counting objects too large");
                     goto fail;
@@ -1599,19 +1598,19 @@ get_user_objects(PyGC_Head *list, PyObject *result)
                 PyErr_SetString(PyExc_MemoryError, "can't construct int");
                 goto fail;
             }
-            if (PyDict_SetItem(result, obj, v)) {
+            if (PyDict_SetItem(result, obj_repr, v)) {
                 Py_DECREF(v);
                 PyErr_SetString(PyExc_RuntimeError, "can't set item of result");
                 goto fail;
             }
-            Py_DECREF(obj);
+            Py_DECREF(obj_repr);
             Py_DECREF(v);
         }
     }
 
     return 0;
 fail:
-    Py_DECREF(obj);
+    Py_DECREF(obj_repr);
     return -1;
 }
 
