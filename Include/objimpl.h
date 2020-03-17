@@ -239,6 +239,7 @@ PyAPI_FUNC(PyVarObject *) _PyObject_NewVar(PyTypeObject *, Py_ssize_t);
 PyAPI_FUNC(Py_ssize_t) PyGC_Collect(void);
 
 PyAPI_FUNC(PyObject *) PyGC_Collect_User_Objects(void);
+PyAPI_FUNC(size_t) PyGC_Get_All_Size(void);
 
 PyAPI_FUNC(PyObject *) PyGC_Get_Exclude_Modules(void);
 PyAPI_FUNC(Py_ssize_t) PyGC_Set_Exclude_Modules(PyObject *);

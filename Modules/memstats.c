@@ -44,6 +44,11 @@ memstats_set_exclude_modules(PyObject *self, PyObject *args)
     return Py_BuildValue("i", PyGC_Set_Exclude_Modules(args));
 }
 
+static PyObject *
+memstats_get_gc_size(PyObject *self, PyObject *args) {
+    return Py_BuildValue("i", PyGC_Get_All_Size());
+}
+
 static PyMethodDef memstats_methods[] = {
     {"get_arenas_n", memstats_get_arenas_n, METH_NOARGS,
      "Return the number of arenas."},
@@ -55,6 +60,8 @@ static PyMethodDef memstats_methods[] = {
      "get exclude modules for user objects"},
      {"set_exclude_modules", memstats_set_exclude_modules, METH_VARARGS,
      "set exclude modules for user objects"},
+     {"get_gc_size", memstats_get_gc_size, METH_NOARGS,
+     "get total size of all objects in gc"},
     {NULL, NULL} /* sentinel */
 };
 

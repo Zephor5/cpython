@@ -1630,6 +1630,25 @@ PyGC_Collect_User_Objects(void)
     return result;
 }
 
+size_t
+PyGC_Get_All_Size(void)
+{
+    int i;
+    size_t t, size = 0, _errret = -1;
+    PyGC_Head *list, *gc;
+
+    for (i = NUM_GENERATIONS; i-- > 0;) {
+        list = GEN_HEAD(i);
+        for (gc = list->gc.gc_prev; gc != list; gc = gc->gc.gc_prev) {
+            t = _PySys_GetSizeOf(FROM_GC(gc));
+            if (t == _errret)
+                continue;
+            size += t;
+        }
+    }
+    return size;
+}
+
 /* for debugging */
 void
 _PyGC_Dump(PyGC_Head *g)
